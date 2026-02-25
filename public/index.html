@@ -35,7 +35,7 @@
     color: var(--text);
     height: 100vh;
     display: grid;
-    grid-template-rows: 52px 1fr;
+    grid-template-rows: 52px 28px 1fr;
     grid-template-columns: 340px 1fr;
     overflow: hidden;
   }
@@ -43,6 +43,7 @@
   /* HEADER */
   header {
     grid-column: 1 / -1;
+    grid-row: 1;
     background: var(--surface);
     border-bottom: 1px solid var(--border);
     display: flex;
@@ -81,16 +82,10 @@
     color: var(--accent);
   }
 
-  .logo-sub {
-    font-size: 10px;
-    color: var(--muted);
-    letter-spacing: 0.1em;
-  }
-
   .header-right {
     display: flex;
     align-items: center;
-    gap: 20px;
+    gap: 14px;
     font-size: 11px;
     color: var(--muted);
   }
@@ -100,28 +95,91 @@
     font-size: 12px;
   }
 
-  .status-pill {
+  .status-bar {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    background: var(--surface);
+    border-top: 1px solid #171724;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 12px;
+    z-index: 900;
+    gap: 12px;
+  }
+
+  .status-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .weather-chip {
+    font-size: 10px;
+    color: var(--text);
+    white-space: nowrap;
+  }
+
+  .status-center {
+    flex: 1;
+    text-align: center;
+    font-size: 10px;
+    color: var(--muted);
+    font-style: italic;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding: 0 10px;
+  }
+
+  .status-right {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 4px 10px;
+  }
+
+  .source-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
     border: 1px solid var(--border);
     border-radius: 2px;
-    font-size: 10px;
+    padding: 2px 7px;
+    font-size: 9px;
+    color: var(--muted);
     text-transform: uppercase;
-    letter-spacing: 0.1em;
+    letter-spacing: 0.08em;
+    white-space: nowrap;
   }
 
   .status-dot {
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: var(--accent);
-    animation: pulse 1.5s infinite;
+    background: var(--muted);
+  }
+
+  .source-pill[data-state="ok"] .status-dot {
+    background: #4cff7a;
+    box-shadow: 0 0 5px rgba(76,255,122,0.5);
+  }
+
+  .source-pill[data-state="error"] .status-dot {
+    background: #ff4747;
+    box-shadow: 0 0 5px rgba(255,71,71,0.5);
+  }
+
+  .source-pill[data-state="stale"] .status-dot {
+    background: #77778f;
+    box-shadow: none;
   }
 
   /* SIDEBAR */
   aside {
+    grid-column: 1;
+    grid-row: 3;
     background: var(--surface);
     border-right: 1px solid var(--border);
     overflow-y: auto;
@@ -318,6 +376,8 @@
 
   /* MAP */
   #map {
+    grid-column: 2;
+    grid-row: 3;
     z-index: 1;
     position: relative;
   }
@@ -448,12 +508,20 @@
   @media (max-width: 900px) {
     body {
       grid-template-columns: 1fr;
-      grid-template-rows: 52px 42vh 1fr;
+      grid-template-rows: 52px 28px 42vh 1fr;
     }
 
     aside {
+      grid-column: 1;
+      grid-row: 4;
       border-right: none;
-      border-bottom: 1px solid var(--border);
+      border-top: 1px solid var(--border);
+      border-bottom: none;
+    }
+
+    #map {
+      grid-column: 1;
+      grid-row: 3;
     }
 
     .header-right {
@@ -461,8 +529,16 @@
       font-size: 10px;
     }
 
-    .status-pill {
+    .status-center {
       display: none;
+    }
+
+    .status-right {
+      gap: 4px;
+    }
+
+    .source-pill {
+      padding: 2px 6px;
     }
   }
 </style>
@@ -474,20 +550,40 @@
     <div class="logo-dot"></div>
     <div>
       <div class="logo-text">Athens Monitor</div>
-      <div class="logo-sub">Συμβαίνει κάτι τώρα στην Αθήνα που αλλάζει τη μέρα σου;</div>
     </div>
   </div>
   <div class="header-right">
-    <div class="status-pill">
-      <div class="status-dot"></div>
-      <span id="source-status">Sources: --</span>
-    </div>
     <div id="live-time">--:--:--</div>
     <button class="refresh-btn" onclick="loadIncidents()">
       <span class="btn-icon">↻</span> Refresh
     </button>
   </div>
 </header>
+
+<div class="status-bar">
+  <div class="status-left">
+    <span class="weather-chip" id="weather-temp">🌡 --°C</span>
+    <span class="weather-chip" id="weather-wind">💨 --km/h</span>
+    <span class="weather-chip" id="weather-uvi">☀ UV:--</span>
+    <span class="weather-chip" id="weather-moon">—</span>
+    <span class="weather-chip" id="weather-humidity">💧--%</span>
+  </div>
+  <div class="status-center">Συμβαίνει κάτι τώρα στην Αθήνα που αλλάζει τη μέρα σου;</div>
+  <div class="status-right">
+    <div class="source-pill" id="source-gdelt" data-state="stale">
+      <span class="status-dot"></span>
+      <span>GDELT</span>
+    </div>
+    <div class="source-pill" id="source-meteo" data-state="stale">
+      <span class="status-dot"></span>
+      <span>METEO</span>
+    </div>
+    <div class="source-pill" id="source-usgs" data-state="stale">
+      <span class="status-dot"></span>
+      <span>USGS</span>
+    </div>
+  </div>
+</div>
 
 <aside>
   <div class="sidebar-header">

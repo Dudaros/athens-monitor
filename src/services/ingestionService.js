@@ -7,70 +7,19 @@ import {
 import { classifyIncident } from "../utils/classification.js";
 import { isInsideAttica, textLooksAthensRelevant } from "../utils/geolocation.js";
 import { areLikelyDuplicateHeadlines } from "../utils/headlineSimilarity.js";
+import { evaluateIncidentInclusion, hasAtticaLocationSignal } from "../utils/incidentFilter.js";
 import { resolveIncidentCoordinates } from "./geocodingService.js";
 import { fetchGdeltIncidents } from "./providers/gdeltProvider.js";
 import { fetchMeteoIncidents } from "./providers/meteoProvider.js";
+import { fetchUsgsIncidents } from "./providers/usgsProvider.js";
 
 const INCIDENT_UUID_NAMESPACE = "d3f27d9c-5fc3-40c4-9f39-31eac5fdbf66";
 
 const PROVIDERS = {
   gdelt: fetchGdeltIncidents,
   meteo: fetchMeteoIncidents,
+  usgs: fetchUsgsIncidents,
 };
-
-const GDELT_SIGNAL_TERMS = [
-  "fire",
-  "wildfire",
-  "explosion",
-  "blast",
-  "attack",
-  "shooting",
-  "robbery",
-  "stabbing",
-  "arrest",
-  "police",
-  "crash",
-  "accident",
-  "collision",
-  "flood",
-  "earthquake",
-  "injured",
-  "killed",
-  "dead",
-  "protest",
-  "riot",
-  "strike",
-  "evacuation",
-  "έκρηξη",
-  "φωτιά",
-  "πυρκαγιά",
-  "αστυνομ",
-  "σύλληψη",
-  "τραυματ",
-  "νεκρ",
-  "ατύχημα",
-  "πορεία",
-  "πλημμ",
-  "σεισμ",
-];
-
-const GDELT_NOISE_TERMS = [
-  "casting",
-  "tourism",
-  "box office",
-  "movie",
-  "tv show",
-  "celebrity",
-  "horoscope",
-  "recipe",
-  "real estate",
-  "stock market",
-  "crypto",
-  "transfer news",
-  "lifestyle",
-  "opinion",
-  "interview",
-];
 
 function parseDate(input) {
   if (typeof input === "string") {
@@ -123,23 +72,9 @@ function deterministicIncidentId({ source, canonicalUrl, title, lat, lng }) {
   return uuidv5(seed, INCIDENT_UUID_NAMESPACE);
 }
 
-function isLikelyGdeltIncidentTitle(title, category) {
-  const normalized = String(title || "").toLowerCase();
-
-  if (GDELT_NOISE_TERMS.some((term) => normalized.includes(term))) {
-    return false;
-  }
-
-  if (category !== "general") {
-    return true;
-  }
-
-  return GDELT_SIGNAL_TERMS.some((term) => normalized.includes(term));
-}
-
 function coerceSources(rawSources) {
   if (!rawSources) {
-    return ["gdelt", "meteo"];
+    return ["gdelt", "meteo", "usgs"];
   }
 
   const requested = Array.isArray(rawSources)
@@ -149,7 +84,7 @@ function coerceSources(rawSources) {
         .map((value) => value.trim().toLowerCase());
 
   const selected = requested.filter((source) => PROVIDERS[source]);
-  return selected.length > 0 ? selected : ["gdelt", "meteo"];
+  return selected.length > 0 ? selected : ["gdelt", "meteo", "usgs"];
 }
 
 async function normalizeIncident(rawIncident, allowRemoteLookup = false) {
@@ -169,7 +104,7 @@ async function normalizeIncident(rawIncident, allowRemoteLookup = false) {
   const looksRelevant = textLooksAthensRelevant(textBlob);
 
   let coordinates = null;
-  if (hasCoords && isInsideAttica(lat, lng)) {
+  if (hasCoords && (isInsideAttica(lat, lng) || source.toLowerCase() === "usgs")) {
     coordinates = {
       lat,
       lng,
@@ -187,18 +122,8 @@ async function normalizeIncident(rawIncident, allowRemoteLookup = false) {
     return null;
   }
 
-  const { category, severity: inferredSeverity } = classifyIncident(title);
+  const { severity: inferredSeverity } = classifyIncident(title);
   const severity = rawIncident?.severity || inferredSeverity;
-
-  if (source === "gdelt") {
-    if (!isLikelyGdeltIncidentTitle(title, category)) {
-      return null;
-    }
-
-    if (coordinates.locationConfidence === "approx") {
-      return null;
-    }
-  }
 
   const firstSeenAt = publishedAtDate.toISOString();
   const lastSeenAt = new Date().toISOString();
@@ -299,9 +224,52 @@ export async function fetchNormalizedIncidents(options = {}) {
     throw new Error(failureMessage || "All providers failed");
   }
 
+  const filterStats = {
+    total: 0,
+    passed: 0,
+    failed: 0,
+  };
+
+  const filteredPayloads = successfulPayloads.filter((rawIncident) => {
+    const source = String(rawIncident?.source || "").toLowerCase();
+    if (source !== "gdelt") {
+      return true;
+    }
+
+    filterStats.total += 1;
+
+    const title = String(rawIncident?.title || "");
+    const description = String(rawIncident?.description || "");
+    const lat = Number(rawIncident?.lat);
+    const lng = Number(rawIncident?.lng);
+    const hasSourceLocationInAttica = Number.isFinite(lat) && Number.isFinite(lng) && isInsideAttica(lat, lng);
+    const hasTextLocationInAttica = hasAtticaLocationSignal(`${title} ${description}`);
+
+    const inclusion = evaluateIncidentInclusion({
+      title,
+      description,
+      locationMatchInAttica: hasSourceLocationInAttica || hasTextLocationInAttica,
+    });
+
+    if (inclusion.accepted) {
+      filterStats.passed += 1;
+      return true;
+    }
+
+    filterStats.failed += 1;
+    return false;
+  });
+
+  if (filterStats.total > 0) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[incidentFilter] cycle totals: total=${filterStats.total} passed=${filterStats.passed} failed=${filterStats.failed}`,
+    );
+  }
+
   const normalized = (
     await Promise.all(
-      successfulPayloads.map((rawIncident, index) =>
+      filteredPayloads.map((rawIncident, index) =>
         normalizeIncident(rawIncident, index < GEOCODER_MAX_LOOKUPS_PER_REQUEST),
       ),
     )

@@ -23,6 +23,7 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/athens_monitor}
       PORT: 3000
+      OPENWEATHER_API_KEY: ${OPENWEATHER_API_KEY:-}
     ports:
       - "${APP_PORT:-3000}:3000"
 
@@ -34,7 +35,7 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/athens_monitor}
-      POLL_SOURCES: ${POLL_SOURCES:-gdelt,meteo}
+      POLL_SOURCES: ${POLL_SOURCES:-gdelt,meteo,usgs}
 
 volumes:
   postgres_data:

@@ -134,3 +134,20 @@ export async function getIncidentsHealthSnapshot() {
     cachedCount: Number(row.cached_count || 0),
   };
 }
+
+export async function listIncidentsHealthBySource() {
+  const result = await pool.query(`
+    SELECT
+      source,
+      MAX(last_seen_at) AS last_success,
+      COUNT(*) FILTER (WHERE status = 'active')::INTEGER AS cached_count
+    FROM incidents
+    GROUP BY source;
+  `);
+
+  return result.rows.map((row) => ({
+    source: String(row.source || "").toLowerCase(),
+    lastSuccess: row.last_success ? new Date(row.last_success).toISOString() : null,
+    cachedCount: Number(row.cached_count || 0),
+  }));
+}

@@ -1,22 +1,6 @@
 import { listIncidents } from "../db/incidentsRepository.js";
-
-const GDELT_NOISE_TERMS = [
-  "casting",
-  "tourism",
-  "box office",
-  "movie",
-  "tv show",
-  "celebrity",
-  "horoscope",
-  "recipe",
-  "real estate",
-  "stock market",
-  "crypto",
-  "transfer news",
-  "lifestyle",
-  "opinion",
-  "interview",
-];
+import { isInsideAttica } from "../utils/geolocation.js";
+import { evaluateIncidentInclusion, hasAtticaLocationSignal } from "../utils/incidentFilter.js";
 
 function parseMinConfidence(rawValue) {
   if (rawValue === undefined || rawValue === null || rawValue === "") {
@@ -56,12 +40,31 @@ function parseSource(rawValue) {
 }
 
 function shouldKeepRow(row) {
-  if (String(row?.source || "").toLowerCase() !== "gdelt") {
+  const source = String(row?.source || "").toLowerCase();
+  if (source !== "gdelt") {
     return true;
   }
 
-  const normalizedTitle = String(row?.title || "").toLowerCase();
-  return !GDELT_NOISE_TERMS.some((term) => normalizedTitle.includes(term));
+  const title = String(row?.title || "");
+  const description = String(row?.description || "");
+  const lat = Number(row?.lat);
+  const lng = Number(row?.lng);
+  const confidence = Number(row?.confidence || 0);
+
+  const hasSourceLocationInAttica =
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    confidence >= 0.85 &&
+    isInsideAttica(lat, lng);
+  const hasTextLocationInAttica = hasAtticaLocationSignal(`${title} ${description}`);
+
+  const inclusion = evaluateIncidentInclusion({
+    title,
+    description,
+    locationMatchInAttica: hasSourceLocationInAttica || hasTextLocationInAttica,
+  });
+
+  return inclusion.accepted;
 }
 
 export async function getIncidents(filters = {}) {

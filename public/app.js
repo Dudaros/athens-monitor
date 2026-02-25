@@ -15,6 +15,8 @@ const CATEGORY_KEYWORDS = {
   crime: ["murder", "shooting", "robbery", "stabbing", "arrest", "crime", "attack", "gang"],
   accident: ["crash", "accident", "collision", "derail", "flood", "earthquake", "ατύχημα"],
 };
+const WEATHER_REFRESH_MS = 30 * 60 * 1000;
+const MONITORED_SOURCES = ["gdelt", "meteo", "usgs"];
 
 let allIncidents = [];
 let currentFilter = "all";
@@ -63,17 +65,72 @@ function setRefreshingState(refreshing) {
   refreshButton.classList.toggle("spinning", refreshing);
 }
 
-function updateSourceStatus(health) {
-  const statusEl = document.getElementById("source-status");
-  if (!statusEl) return;
+function setSourceState(source, state = "stale") {
+  const el = document.getElementById(`source-${source}`);
+  if (!el) return;
 
-  if (!health || !health.source) {
-    statusEl.textContent = "Sources: --";
+  const normalized = ["ok", "error", "stale"].includes(state) ? state : "stale";
+  el.dataset.state = normalized;
+}
+
+function updateSourceStatus(health) {
+  const sources = health?.sources || {};
+
+  MONITORED_SOURCES.forEach((source) => {
+    setSourceState(source, sources[source]?.status || "stale");
+  });
+}
+
+function toDisplayNumber(value, digits = 0) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "--";
+  return num.toFixed(digits);
+}
+
+function renderWeatherWidgets(weather, { loading = false } = {}) {
+  const tempEl = document.getElementById("weather-temp");
+  const windEl = document.getElementById("weather-wind");
+  const uviEl = document.getElementById("weather-uvi");
+  const moonEl = document.getElementById("weather-moon");
+  const humidityEl = document.getElementById("weather-humidity");
+
+  if (!tempEl || !windEl || !uviEl || !moonEl || !humidityEl) {
     return;
   }
 
-  const state = health.lastSuccess ? "warm" : "cold";
-  statusEl.textContent = `Source: ${health.source} (${state})`;
+  if (loading) {
+    tempEl.textContent = "🌡 --°C";
+    windEl.textContent = "💨 --km/h";
+    uviEl.textContent = "☀ UV:--";
+    moonEl.textContent = "—";
+    humidityEl.textContent = "💧--%";
+    return;
+  }
+
+  tempEl.textContent = `🌡 ${toDisplayNumber(weather?.temp, 0)}°C`;
+  windEl.textContent = `💨 ${toDisplayNumber(weather?.windSpeed, 0)}km/h`;
+  uviEl.textContent = `☀ UV:${toDisplayNumber(weather?.uvi, 1)}`;
+  moonEl.textContent = weather?.moonSymbol || "—";
+  humidityEl.textContent = `💧${toDisplayNumber(weather?.humidity, 0)}%`;
+}
+
+async function loadWeather() {
+  renderWeatherWidgets(null, { loading: true });
+
+  try {
+    const response = await fetch("/api/weather", {
+      headers: { Accept: "application/json" },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Weather API failed with status ${response.status}`);
+    }
+
+    const weather = await response.json();
+    renderWeatherWidgets(weather, { loading: false });
+  } catch {
+    renderWeatherWidgets(null, { loading: false });
+  }
 }
 
 function sanitizeUrl(url) {
@@ -105,7 +162,8 @@ function categoryClass(category) {
 }
 
 function inferCategory(title, source) {
-  if (String(source || "").toLowerCase() === "meteo") {
+  const normalizedSource = String(source || "").toLowerCase();
+  if (normalizedSource === "meteo" || normalizedSource === "usgs") {
     return "accident";
   }
 
@@ -172,7 +230,7 @@ async function loadIncidents() {
     updateStats();
     updateSourceStatus(health);
   } catch {
-    updateSourceStatus(null);
+    updateSourceStatus({});
     listEl.innerHTML = `<div class="empty-msg">
       ⚠ Could not load live incidents.<br><br>
       Check API/worker logs.
@@ -292,7 +350,10 @@ window.setFilter = setFilter;
 
 window.onload = () => {
   initMap();
+  renderWeatherWidgets(null, { loading: true });
   updateClock();
   setInterval(updateClock, 1000);
+  loadWeather();
+  setInterval(loadWeather, WEATHER_REFRESH_MS);
   loadIncidents();
 };
