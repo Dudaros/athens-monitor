@@ -4,6 +4,8 @@ Athens Monitor is a real-time city incident monitoring system that ingests exter
 
 The project is designed with production-oriented architecture principles, including containerization, service separation, and persistent storage.
 
+![Athens Monitor Dashboard](docs/images/athens-monitor-dashboard.png)
+
 ## Architecture Overview
 
 The system consists of three core components:
@@ -57,7 +59,7 @@ The entire system runs via Docker.
 ### Start the system
 
 ```bash
-docker-compose up --build
+docker compose up --build
 ```
 
 This starts:
