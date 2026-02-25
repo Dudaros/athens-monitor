@@ -1,85 +1,83 @@
 import { DEFAULT_WINDOW_MINUTES, MAX_LIMIT } from "../config/monitorConfig.js";
-import { getIncidentCacheStatus, refreshIncidentCache } from "./incidentService.js";
+import { closeDatabase, waitForDatabase } from "../db/postgres.js";
+import { upsertIncidents } from "../db/incidentsRepository.js";
+import { fetchNormalizedGdeltIncidents } from "./ingestionService.js";
 
 const POLL_INTERVAL_MS = 15 * 60 * 1000;
 
-let workerStarted = false;
 let pollTimer = null;
 let pollInFlight = false;
-let nextPoll = null;
 
-async function runPoll(reason = "scheduled") {
+async function pollOnce(reason = "scheduled") {
   if (pollInFlight) {
-    return false;
+    return;
   }
 
   pollInFlight = true;
 
   try {
-    const result = await refreshIncidentCache({
+    const incidents = await fetchNormalizedGdeltIncidents({
       windowMinutes: DEFAULT_WINDOW_MINUTES,
       limit: MAX_LIMIT,
-      sources: ["gdelt"],
     });
+
+    const result = await upsertIncidents(incidents);
 
     // eslint-disable-next-line no-console
     console.log(
-      `[pollingWorker] ${reason} success: cached ${result.cachedCount} incidents at ${result.fetchedAt}`,
+      `[pollingWorker] ${reason} success: fetched=${incidents.length} upserted=${result.upserted} at ${new Date().toISOString()}`,
     );
-
-    return true;
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown poll error";
     // eslint-disable-next-line no-console
     console.error(`[pollingWorker] ${reason} failed: ${message}`);
-    return false;
   } finally {
     pollInFlight = false;
   }
 }
 
 function scheduleNextPoll() {
-  nextPoll = new Date(Date.now() + POLL_INTERVAL_MS).toISOString();
-
   pollTimer = setTimeout(async () => {
-    await runPoll("scheduled");
+    await pollOnce("scheduled");
     scheduleNextPoll();
   }, POLL_INTERVAL_MS);
 }
 
 export async function startPollingWorker() {
-  if (workerStarted) {
-    return;
-  }
+  await waitForDatabase();
 
-  workerStarted = true;
-
-  // Warm cache immediately before serving user traffic.
-  await runPoll("startup");
+  // Warm database immediately on startup.
+  await pollOnce("startup");
   scheduleNextPoll();
 }
 
-export function stopPollingWorker() {
+export async function stopPollingWorker() {
   if (pollTimer) {
     clearTimeout(pollTimer);
     pollTimer = null;
   }
 
-  workerStarted = false;
-  nextPoll = null;
+  await closeDatabase();
 }
 
-export function getPollingStatus() {
-  const cacheStatus = getIncidentCacheStatus();
+async function runAsProcess() {
+  await startPollingWorker();
 
-  return {
-    source: cacheStatus.source,
-    lastSuccess: cacheStatus.lastSuccess,
-    cachedCount: cacheStatus.cachedCount,
-    nextPoll,
-    stale: cacheStatus.stale,
-    staleAt: cacheStatus.staleAt,
-    lastAttempt: cacheStatus.lastAttempt,
-    lastError: cacheStatus.lastError,
+  const shutdown = async () => {
+    await stopPollingWorker();
+    process.exit(0);
   };
+
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  runAsProcess().catch(async (error) => {
+    const message = error instanceof Error ? error.stack || error.message : String(error);
+    // eslint-disable-next-line no-console
+    console.error(`Worker startup failed: ${message}`);
+    await closeDatabase();
+    process.exit(1);
+  });
 }

@@ -5,7 +5,9 @@
   "description": "Athens incident monitor with modular live data providers",
   "type": "module",
   "scripts": {
-    "start": "node src/server.js",
+    "start": "npm run start:api",
+    "start:api": "node src/server.js",
+    "start:worker": "node src/services/pollingWorker.js",
     "dev": "NODE_ENV=development node --watch src/server.js",
     "check": "node --check src/server.js"
   },
@@ -15,6 +17,8 @@
   "dependencies": {
     "express": "^4.21.2",
     "helmet": "^8.1.0",
-    "morgan": "^1.10.0"
+    "morgan": "^1.10.0",
+    "pg": "^8.13.1",
+    "uuid": "^11.0.5"
   }
 }

@@ -1,67 +1,87 @@
 # Athens Monitor
 
-Athens-focused live incident monitor with a map-first UI and a source-adapter backend.
+Athens Monitor is a real-time city incident monitoring system that ingests external event sources, normalizes data, stores it persistently, and exposes a read-optimized API for map-based visualization and analytics.
 
-This first version keeps the existing visual identity while introducing a scalable architecture:
-- Browser talks only to local API (`/api/incidents`)
-- Providers are modular (`src/services/providers/*`)
-- Events are normalized into one schema before rendering
-- Fetching is bounded, cached, and fault-tolerant for partial source failures
-- Geocoding is now location-aware (anchor matching + Nominatim fallback)
-- Duplicate stories are collapsed with headline similarity, not just URL matching
-- UI markers/cards use a semantic legend by category
-- Background polling worker refreshes GDELT every 15 minutes; API serves cache only
+The project is designed with production-oriented architecture principles, including containerization, service separation, and persistent storage.
 
-## Run
+## Architecture Overview
+
+The system consists of three core components:
+
+### 1. Ingestion Worker
+
+- Polls external data sources on a schedule
+- Normalizes incident data
+- Writes to PostgreSQL using idempotent upsert logic
+- Runs independently from the web API
+
+### 2. PostgreSQL Database
+
+- Persistent storage for all incidents
+- Indexed for time and status filtering
+- Designed to support future analytics and scaling
+
+### 3. API Service
+
+- Read-only service for incident retrieval
+- Supports filtering by:
+  - status
+  - confidence
+  - time range
+- Optimized for map-based frontends
+
+## Data Model
+
+Each incident record contains:
+
+- Unique ID (UUID)
+- Title and description
+- Latitude and longitude
+- Severity
+- Confidence score
+- Source identifier
+- First and last seen timestamps
+- Lifecycle status (active/resolved/expired)
+
+The system is designed to support historical queries and future analytical extensions.
+
+## Running Locally
+
+The entire system runs via Docker.
+
+### Requirements
+
+- Docker
+- Docker Compose
+
+### Start the system
 
 ```bash
-npm install
-npm start
+docker-compose up --build
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+This starts:
 
-## Current source
+- API service
+- Ingestion worker
+- PostgreSQL database
 
-- `gdelt` provider (`src/services/providers/gdeltProvider.js`)
+Data is persisted via Docker volumes.
 
-## API
+## Design Principles
 
-- `GET /api/health`
-- `GET /api/incidents?windowMinutes=1440&limit=120&category=all&sources=gdelt`
+- Persistent storage (no in-memory production state)
+- Idempotent ingestion
+- Service separation (worker and API)
+- Containerized deployment
+- Scalable read-oriented API design
 
-Query limits are validated server-side:
-- `windowMinutes`: 60 to 4320
-- `limit`: 20 to 400
+## Future Directions
 
-## Architecture
+The current architecture supports:
 
-- `public/index.html`: UI shell (same aesthetic)
-- `public/app.js`: map + filters + rendering
-- `src/server.js`: web server + API routes
-- `src/services/incidentService.js`: aggregation, normalization, dedupe, caching
-- `src/services/geocodingService.js`: location resolver (anchors + Nominatim)
-- `src/services/pollingWorker.js`: startup warmup + 15-minute refresh scheduler
-- `src/services/providers/`: one file per data provider
-- `src/utils/`: classification/geolocation helpers
-
-## Geocoding
-
-- Provider: OpenStreetMap Nominatim (`src/services/geocodingService.js`)
-- Flow: source coordinates (if valid in Attica) -> local anchor match -> Nominatim lookup -> Athens center (explicitly marked as approximate)
-- Optional env:
-  - `NOMINATIM_CONTACT=you@example.com` (recommended for API courtesy)
-
-## Incremental roadmap
-
-1. Add weather risk provider (e.g. meteo alerts) using the same event schema.
-2. Add official civil protection/police feeds where APIs exist.
-3. Add camera overlay metadata (not streams first): status + location + thumbnail link.
-4. Add queue/caching layer (Redis) and source polling workers for higher traffic.
-5. Add persistence (PostgreSQL + PostGIS) and trend/history views.
-
-## Notes
-
-- GDELT response quality varies; fallback geolocation is currently deterministic around Athens when only text is available.
-- GDELT can throttle requests (`429`). The service uses a short TTL cache and marks source errors in the UI instead of crashing.
-- This is intentionally source-conservative; we should onboard each new feed one by one with validation.
+- Multi-source ingestion
+- Analytical transformation layers
+- Geospatial extensions
+- Historical trend analysis
+- Scalable cloud deployment

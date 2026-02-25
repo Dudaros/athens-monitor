@@ -1,6 +1,4 @@
 const ATHENS = { lat: 37.9838, lng: 23.7275 };
-const WINDOW_MINUTES = 24 * 60;
-const API_LIMIT = 140;
 const CATEGORY_COLORS = {
   fire: "#ff3b30",
   explosion: "#ff8a00",
@@ -8,6 +6,14 @@ const CATEGORY_COLORS = {
   crime: "#47c4ff",
   accident: "#a064ff",
   general: "#6b6b80",
+};
+
+const CATEGORY_KEYWORDS = {
+  protest: ["protest", "demonstration", "rally", "strike", "riot", "march", "πορεία", "απεργία"],
+  fire: ["fire", "blaze", "wildfire", "arson", "φωτιά", "πυρκαγιά"],
+  explosion: ["explosion", "bomb", "blast", "explosive", "έκρηξη"],
+  crime: ["murder", "shooting", "robbery", "stabbing", "arrest", "crime", "attack", "gang"],
+  accident: ["crash", "accident", "collision", "derail", "flood", "earthquake", "ατύχημα"],
 };
 
 let allIncidents = [];
@@ -54,30 +60,26 @@ function updateClock() {
 function setRefreshingState(refreshing) {
   const refreshButton = document.querySelector(".refresh-btn");
   if (!refreshButton) return;
-
   refreshButton.classList.toggle("spinning", refreshing);
 }
 
-function updateSourceStatus(providerStatus = [], stale = false) {
+function updateSourceStatus(health) {
   const statusEl = document.getElementById("source-status");
   if (!statusEl) return;
 
-  if (providerStatus.length === 0) {
+  if (!health || !health.source) {
     statusEl.textContent = "Sources: --";
     return;
   }
 
-  const okCount = providerStatus.filter((source) => source.status === "ok").length;
-  statusEl.textContent = stale
-    ? `Sources: ${okCount}/${providerStatus.length} (stale)`
-    : `Sources: ${okCount}/${providerStatus.length}`;
+  const state = health.lastSuccess ? "warm" : "cold";
+  statusEl.textContent = `Source: ${health.source} (${state})`;
 }
 
 function sanitizeUrl(url) {
   if (!url) return "#";
   try {
-    const parsed = new URL(url);
-    return parsed.toString();
+    return new URL(url).toString();
   } catch {
     return "#";
   }
@@ -102,36 +104,76 @@ function categoryClass(category) {
   return known.has(category) ? category : "default";
 }
 
+function inferCategory(title) {
+  const normalized = String(title || "").toLowerCase();
+  for (const [category, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
+    if (keywords.some((keyword) => normalized.includes(keyword))) {
+      return category;
+    }
+  }
+  return "general";
+}
+
+function getTimeAgo(dateInput) {
+  const date = new Date(dateInput || Date.now());
+  const mins = Math.max(0, Math.floor((Date.now() - date.getTime()) / 60000));
+  if (mins < 60) return `${mins}m ago`;
+  if (mins < 1440) return `${Math.floor(mins / 60)}h ago`;
+  return `${Math.floor(mins / 1440)}d ago`;
+}
+
+function mapRowToIncident(row) {
+  const category = inferCategory(row.title);
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    lat: Number(row.lat),
+    lng: Number(row.lng),
+    severity: row.severity || "low",
+    confidence: Number(row.confidence || 0.5),
+    source: row.source || "gdelt",
+    category,
+    timeAgo: getTimeAgo(row.lastSeenAt || row.updatedAt),
+  };
+}
+
 async function loadIncidents() {
   const listEl = document.getElementById("incident-list");
   listEl.innerHTML = '<div class="loading-state"><div class="spinner"></div>Fetching Athens incidents...</div>';
   setRefreshingState(true);
 
   try {
-    const url = `/api/incidents?windowMinutes=${WINDOW_MINUTES}&limit=${API_LIMIT}`;
-    const response = await fetch(url, { headers: { Accept: "application/json" } });
+    const [incidentsResponse, healthResponse] = await Promise.all([
+      fetch("/api/incidents?status=active&min_confidence=0.5", {
+        headers: { Accept: "application/json" },
+      }),
+      fetch("/api/health", { headers: { Accept: "application/json" } }),
+    ]);
 
-    if (!response.ok) {
-      throw new Error(`API failed with status ${response.status}`);
+    if (!incidentsResponse.ok) {
+      throw new Error(`API failed with status ${incidentsResponse.status}`);
     }
 
-    const data = await response.json();
-    allIncidents = Array.isArray(data.incidents) ? data.incidents : [];
+    const rows = await incidentsResponse.json();
+    const health = healthResponse.ok ? await healthResponse.json() : null;
+
+    allIncidents = Array.isArray(rows) ? rows.map(mapRowToIncident) : [];
 
     renderIncidents();
     renderMarkers();
-    updateStats(data);
-    updateSourceStatus(data.providerStatus, Boolean(data.stale));
+    updateStats();
+    updateSourceStatus(health);
   } catch {
-    updateSourceStatus([]);
+    updateSourceStatus(null);
     listEl.innerHTML = `<div class="empty-msg">
       ⚠ Could not load live incidents.<br><br>
-      Check server logs or provider availability.
+      Check API/worker logs.
     </div>`;
 
     allIncidents = [];
     renderMarkers();
-    updateStats({ totals: { total: 0, high: 0 }, windowMinutes: WINDOW_MINUTES });
+    updateStats();
   } finally {
     setRefreshingState(false);
   }
@@ -159,7 +201,7 @@ function renderIncidents() {
         <div class="inc-meta">
           <span class="inc-tag tag-${tagClass(incident.category)}">${escapeHtml(incident.category || "general")}</span>
           <span class="inc-tag tag-${tagClass(incident.severity || "low")}">${escapeHtml(incident.severity || "low")}</span>
-          <span class="inc-source">${escapeHtml(incident.domain || incident.source || "")}</span>
+          <span class="inc-source">${escapeHtml(incident.source || "")}</span>
           <span class="inc-time">${escapeHtml(incident.timeAgo || "now")}</span>
         </div>
       </div>
@@ -190,7 +232,7 @@ function renderMarkers() {
     });
 
     const marker = L.marker([incident.lat, incident.lng], { icon });
-    const safeUrl = sanitizeUrl(incident.url);
+    const safeUrl = sanitizeUrl(incident.description);
 
     marker.bindPopup(
       `
@@ -200,9 +242,9 @@ function renderMarkers() {
         <span style="font-size:9px;color:#6b6b80;">${escapeHtml(incident.timeAgo || "now")}</span>
       </div>
       <div style="font-size:9px;color:#6b6b80;margin-bottom:6px;">
-        ${escapeHtml(incident.locationConfidence === "approx" ? "Location: Approximate (Athens center)" : `Location: ${incident.locationLabel || "Attica"}`)}
+        Confidence: ${(incident.confidence * 100).toFixed(0)}%
       </div>
-      ${safeUrl !== "#" ? `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer" class="popup-link">→ Read article</a>` : ""}
+      ${safeUrl !== "#" ? `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer" class="popup-link">→ Open source</a>` : ""}
       `,
       { maxWidth: 260 },
     );
@@ -211,14 +253,13 @@ function renderMarkers() {
   });
 }
 
-function updateStats(data) {
-  const total = Number(data?.totals?.total || 0);
-  const high = Number(data?.totals?.high || 0);
-  const hours = Math.max(1, Math.floor(Number(data?.windowMinutes || WINDOW_MINUTES) / 60));
+function updateStats() {
+  const total = allIncidents.length;
+  const high = allIncidents.filter((incident) => incident.severity === "high").length;
 
   document.getElementById("stat-total").textContent = total;
   document.getElementById("stat-high").textContent = high;
-  document.getElementById("stat-hours").textContent = `${hours}h`;
+  document.getElementById("stat-hours").textContent = "db";
 }
 
 function focusIncident(idx) {
