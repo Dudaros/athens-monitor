@@ -1,15 +1,14 @@
 import {
-  CACHE_TTL_MS,
   DEFAULT_LIMIT,
   DEFAULT_WINDOW_MINUTES,
   GEOCODER_MAX_LOOKUPS_PER_REQUEST,
   MAX_LIMIT,
   MAX_WINDOW_MINUTES,
 } from "../config/monitorConfig.js";
-import { resolveIncidentCoordinates } from "./geocodingService.js";
 import { classifyIncident, getTimeAgoText } from "../utils/classification.js";
-import { areLikelyDuplicateHeadlines } from "../utils/headlineSimilarity.js";
 import { isInsideAttica, textLooksAthensRelevant } from "../utils/geolocation.js";
+import { areLikelyDuplicateHeadlines } from "../utils/headlineSimilarity.js";
+import { resolveIncidentCoordinates } from "./geocodingService.js";
 import { fetchGdeltIncidents } from "./providers/gdeltProvider.js";
 
 const providers = {
@@ -17,21 +16,32 @@ const providers = {
 };
 
 let cache = {
-  key: "",
-  expiresAt: 0,
-  payload: null,
+  incidents: [],
+  fetchedAt: null,
+  windowMinutes: DEFAULT_WINDOW_MINUTES,
+  providerStatus: [{ source: "gdelt", status: "idle", count: 0 }],
+  stale: true,
+  staleAt: null,
+  lastSuccess: null,
+  lastAttempt: null,
+  lastError: null,
 };
-
-function buildCacheKey(options) {
-  return JSON.stringify(options);
-}
 
 function parseDate(input) {
   if (typeof input === "string") {
     const gdeltMatch = input.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/);
     if (gdeltMatch) {
       const [, year, month, day, hour, minute, second] = gdeltMatch;
-      return new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second)));
+      return new Date(
+        Date.UTC(
+          Number(year),
+          Number(month) - 1,
+          Number(day),
+          Number(hour),
+          Number(minute),
+          Number(second),
+        ),
+      );
     }
   }
 
@@ -40,6 +50,30 @@ function parseDate(input) {
     return new Date();
   }
   return candidate;
+}
+
+function coerceWindowMinutes(rawWindow) {
+  const parsed = Number.parseInt(rawWindow, 10);
+  if (Number.isNaN(parsed)) return DEFAULT_WINDOW_MINUTES;
+  return Math.max(60, Math.min(MAX_WINDOW_MINUTES, parsed));
+}
+
+function coerceLimit(rawLimit) {
+  const parsed = Number.parseInt(rawLimit, 10);
+  if (Number.isNaN(parsed)) return DEFAULT_LIMIT;
+  return Math.max(20, Math.min(MAX_LIMIT, parsed));
+}
+
+function coerceSources(rawSources) {
+  if (!rawSources) return ["gdelt"];
+
+  const requested = String(rawSources)
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+
+  const selected = requested.filter((value) => providers[value]);
+  return selected.length > 0 ? selected : ["gdelt"];
 }
 
 async function normalizeIncident(rawIncident, allowRemoteLookup = false) {
@@ -105,9 +139,12 @@ function dedupeIncidents(incidents) {
     }
 
     const duplicateByHeadline = kept.some((existingIncident) => {
-      const hoursBetween = Math.abs(
-        new Date(existingIncident.publishedAt).getTime() - new Date(incident.publishedAt).getTime(),
-      ) / (1000 * 60 * 60);
+      const hoursBetween =
+        Math.abs(
+          new Date(existingIncident.publishedAt).getTime() -
+            new Date(incident.publishedAt).getTime(),
+        ) /
+        (1000 * 60 * 60);
 
       if (hoursBetween > 72) {
         return false;
@@ -129,40 +166,17 @@ function dedupeIncidents(incidents) {
   return kept;
 }
 
-function coerceWindowMinutes(rawWindow) {
-  const parsed = Number.parseInt(rawWindow, 10);
-  if (Number.isNaN(parsed)) return DEFAULT_WINDOW_MINUTES;
-  return Math.max(60, Math.min(MAX_WINDOW_MINUTES, parsed));
+function firstErrorMessage(providerStatus) {
+  const errorProvider = providerStatus.find((provider) => provider.status === "error");
+  return errorProvider?.error || "Provider refresh failed";
 }
 
-function coerceLimit(rawLimit) {
-  const parsed = Number.parseInt(rawLimit, 10);
-  if (Number.isNaN(parsed)) return DEFAULT_LIMIT;
-  return Math.max(20, Math.min(MAX_LIMIT, parsed));
-}
-
-function coerceSources(rawSources) {
-  if (!rawSources) return ["gdelt"];
-
-  const requested = String(rawSources)
-    .split(",")
-    .map((value) => value.trim().toLowerCase())
-    .filter(Boolean);
-
-  const selected = requested.filter((value) => providers[value]);
-  return selected.length > 0 ? selected : ["gdelt"];
-}
-
-export async function getIncidents(options = {}) {
+export async function refreshIncidentCache(options = {}) {
   const windowMinutes = coerceWindowMinutes(options.windowMinutes);
-  const limit = coerceLimit(options.limit);
-  const category = String(options.category || "all").toLowerCase();
+  const limit = coerceLimit(options.limit ?? MAX_LIMIT);
   const sources = coerceSources(options.sources);
 
-  const key = buildCacheKey({ windowMinutes, limit, category, sources });
-  if (cache.payload && cache.key === key && cache.expiresAt > Date.now()) {
-    return cache.payload;
-  }
+  cache.lastAttempt = new Date().toISOString();
 
   const fetchResults = await Promise.allSettled(
     sources.map(async (sourceName) => {
@@ -185,9 +199,28 @@ export async function getIncidents(options = {}) {
       source: sourceName,
       status: "error",
       count: 0,
-      error: result.reason instanceof Error ? result.reason.message : "Unknown provider error",
+      error:
+        result.reason instanceof Error
+          ? result.reason.message
+          : "Unknown provider error",
     };
   });
+
+  const hasSuccessfulProvider = fetchResults.some(
+    (result) => result.status === "fulfilled",
+  );
+
+  if (!hasSuccessfulProvider) {
+    cache = {
+      ...cache,
+      stale: true,
+      staleAt: new Date().toISOString(),
+      providerStatus,
+      lastError: firstErrorMessage(providerStatus),
+    };
+
+    throw new Error(cache.lastError);
+  }
 
   const rawIncidents = fetchResults
     .filter((result) => result.status === "fulfilled")
@@ -201,39 +234,79 @@ export async function getIncidents(options = {}) {
     )
   ).filter(Boolean);
 
-  const hasProviderErrors = providerStatus.some((provider) => provider.status === "error");
-  if (normalized.length === 0 && hasProviderErrors && cache.payload && cache.key === key) {
-    return {
-      ...cache.payload,
-      stale: true,
-      staleAt: new Date().toISOString(),
-      providerStatus,
-    };
-  }
-
   const deduped = dedupeIncidents(
-    [...normalized].sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()),
+    [...normalized].sort(
+      (a, b) =>
+        new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime(),
+    ),
   ).slice(0, limit);
 
-  const filteredIncidents =
-    category === "all" ? deduped : deduped.filter((incident) => incident.category === category);
-
-  const payload = {
-    fetchedAt: new Date().toISOString(),
-    windowMinutes,
-    incidents: filteredIncidents,
-    totals: {
-      total: filteredIncidents.length,
-      high: filteredIncidents.filter((incident) => incident.severity === "high").length,
-    },
-    providerStatus,
-  };
-
+  const nowIso = new Date().toISOString();
   cache = {
-    key,
-    expiresAt: Date.now() + CACHE_TTL_MS,
-    payload,
+    incidents: deduped,
+    fetchedAt: nowIso,
+    windowMinutes,
+    providerStatus,
+    stale: false,
+    staleAt: null,
+    lastSuccess: nowIso,
+    lastAttempt: cache.lastAttempt,
+    lastError: null,
   };
 
-  return payload;
+  return {
+    source: "gdelt",
+    fetchedAt: cache.fetchedAt,
+    cachedCount: cache.incidents.length,
+  };
+}
+
+export function getIncidentCacheStatus() {
+  return {
+    source: "gdelt",
+    lastSuccess: cache.lastSuccess,
+    cachedCount: cache.incidents.length,
+    stale: cache.stale,
+    staleAt: cache.staleAt,
+    lastAttempt: cache.lastAttempt,
+    lastError: cache.lastError,
+  };
+}
+
+export async function getIncidents(options = {}) {
+  const windowMinutes = coerceWindowMinutes(options.windowMinutes);
+  const limit = coerceLimit(options.limit);
+  const category = String(options.category || "all").toLowerCase();
+  const sources = coerceSources(options.sources);
+
+  const sourceSupported = sources.includes("gdelt");
+  const sourceIncidents = sourceSupported ? cache.incidents : [];
+  const minTimestamp = Date.now() - windowMinutes * 60 * 1000;
+
+  const withinWindow = sourceIncidents.filter(
+    (incident) => new Date(incident.publishedAt).getTime() >= minTimestamp,
+  );
+
+  const byCategory =
+    category === "all"
+      ? withinWindow
+      : withinWindow.filter((incident) => incident.category === category);
+
+  const incidents = byCategory.slice(0, limit).map((incident) => ({
+    ...incident,
+    timeAgo: getTimeAgoText(new Date(incident.publishedAt)),
+  }));
+
+  return {
+    fetchedAt: cache.fetchedAt,
+    windowMinutes,
+    incidents,
+    totals: {
+      total: incidents.length,
+      high: incidents.filter((incident) => incident.severity === "high").length,
+    },
+    providerStatus: cache.providerStatus,
+    stale: cache.stale || !cache.lastSuccess,
+    staleAt: cache.staleAt,
+  };
 }

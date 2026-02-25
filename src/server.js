@@ -4,6 +4,7 @@ import morgan from "morgan";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getIncidents } from "./services/incidentService.js";
+import { getPollingStatus, startPollingWorker } from "./services/pollingWorker.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -22,10 +23,17 @@ app.use(express.json({ limit: "100kb" }));
 app.use(express.static(publicDir));
 
 app.get("/api/health", (_req, res) => {
+  const cache = getPollingStatus();
+
   res.json({
     status: "ok",
     service: "athens-monitor",
     now: new Date().toISOString(),
+    source: cache.source,
+    lastSuccess: cache.lastSuccess,
+    cachedCount: cache.cachedCount,
+    nextPoll: cache.nextPoll,
+    cache,
   });
 });
 
@@ -53,7 +61,18 @@ app.get("*", (_req, res) => {
   res.sendFile(path.resolve(publicDir, "index.html"));
 });
 
-app.listen(port, () => {
+async function bootstrap() {
+  await startPollingWorker();
+
+  app.listen(port, () => {
+    // eslint-disable-next-line no-console
+    console.log(`Athens Monitor server running on http://localhost:${port}`);
+  });
+}
+
+bootstrap().catch((error) => {
+  const message = error instanceof Error ? error.stack || error.message : String(error);
   // eslint-disable-next-line no-console
-  console.log(`Athens Monitor server running on http://localhost:${port}`);
+  console.error(`Failed to start server: ${message}`);
+  process.exit(1);
 });

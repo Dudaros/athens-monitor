@@ -10,6 +10,7 @@ This first version keeps the existing visual identity while introducing a scalab
 - Geocoding is now location-aware (anchor matching + Nominatim fallback)
 - Duplicate stories are collapsed with headline similarity, not just URL matching
 - UI markers/cards use a semantic legend by category
+- Background polling worker refreshes GDELT every 15 minutes; API serves cache only
 
 ## Run
 
@@ -40,6 +41,7 @@ Query limits are validated server-side:
 - `src/server.js`: web server + API routes
 - `src/services/incidentService.js`: aggregation, normalization, dedupe, caching
 - `src/services/geocodingService.js`: location resolver (anchors + Nominatim)
+- `src/services/pollingWorker.js`: startup warmup + 15-minute refresh scheduler
 - `src/services/providers/`: one file per data provider
 - `src/utils/`: classification/geolocation helpers
 
