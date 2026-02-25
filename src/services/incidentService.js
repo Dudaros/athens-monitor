@@ -2,15 +2,14 @@ import {
   CACHE_TTL_MS,
   DEFAULT_LIMIT,
   DEFAULT_WINDOW_MINUTES,
+  GEOCODER_MAX_LOOKUPS_PER_REQUEST,
   MAX_LIMIT,
   MAX_WINDOW_MINUTES,
 } from "../config/monitorConfig.js";
+import { resolveIncidentCoordinates } from "./geocodingService.js";
 import { classifyIncident, getTimeAgoText } from "../utils/classification.js";
-import {
-  inferAthensCoordinates,
-  isInsideAttica,
-  textLooksAthensRelevant,
-} from "../utils/geolocation.js";
+import { areLikelyDuplicateHeadlines } from "../utils/headlineSimilarity.js";
+import { isInsideAttica, textLooksAthensRelevant } from "../utils/geolocation.js";
 import { fetchGdeltIncidents } from "./providers/gdeltProvider.js";
 
 const providers = {
@@ -43,7 +42,7 @@ function parseDate(input) {
   return candidate;
 }
 
-function normalizeIncident(rawIncident) {
+async function normalizeIncident(rawIncident, allowRemoteLookup = false) {
   const title = String(rawIncident?.title || "Athens event").trim();
   const url = String(rawIncident?.url || "").trim();
   const domain = String(rawIncident?.domain || rawIncident?.source || "source").trim();
@@ -59,9 +58,18 @@ function normalizeIncident(rawIncident) {
 
   let coordinates = null;
   if (hasCoords && isInsideAttica(lat, lng)) {
-    coordinates = { lat, lng };
+    coordinates = {
+      lat,
+      lng,
+      locationLabel: "Source coordinates",
+      locationConfidence: "source",
+    };
   } else if (looksRelevant) {
-    coordinates = inferAthensCoordinates(title, url);
+    coordinates = await resolveIncidentCoordinates({
+      title,
+      queryHint: rawIncident?.queryHint,
+      allowRemoteLookup,
+    });
   }
 
   if (!coordinates) {
@@ -80,26 +88,45 @@ function normalizeIncident(rawIncident) {
     severity,
     lat: coordinates.lat,
     lng: coordinates.lng,
+    locationLabel: coordinates.locationLabel,
+    locationConfidence: coordinates.locationConfidence,
     publishedAt: publishedAtDate.toISOString(),
     timeAgo: getTimeAgoText(publishedAtDate),
   };
 }
 
 function dedupeIncidents(incidents) {
-  const seen = new Set();
+  const seenUrls = new Set();
+  const kept = [];
 
-  return incidents.filter((incident) => {
-    const dedupeKey = incident.url
-      ? `u:${incident.url}`
-      : `t:${incident.title.toLowerCase()}|d:${incident.domain.toLowerCase()}`;
-
-    if (seen.has(dedupeKey)) {
-      return false;
+  for (const incident of incidents) {
+    if (incident.url && seenUrls.has(incident.url)) {
+      continue;
     }
 
-    seen.add(dedupeKey);
-    return true;
-  });
+    const duplicateByHeadline = kept.some((existingIncident) => {
+      const hoursBetween = Math.abs(
+        new Date(existingIncident.publishedAt).getTime() - new Date(incident.publishedAt).getTime(),
+      ) / (1000 * 60 * 60);
+
+      if (hoursBetween > 72) {
+        return false;
+      }
+
+      return areLikelyDuplicateHeadlines(existingIncident.title, incident.title);
+    });
+
+    if (duplicateByHeadline) {
+      continue;
+    }
+
+    if (incident.url) {
+      seenUrls.add(incident.url);
+    }
+    kept.push(incident);
+  }
+
+  return kept;
 }
 
 function coerceWindowMinutes(rawWindow) {
@@ -162,11 +189,17 @@ export async function getIncidents(options = {}) {
     };
   });
 
-  const normalized = fetchResults
+  const rawIncidents = fetchResults
     .filter((result) => result.status === "fulfilled")
-    .flatMap((result) => result.value.incidents)
-    .map(normalizeIncident)
-    .filter(Boolean);
+    .flatMap((result) => result.value.incidents);
+
+  const normalized = (
+    await Promise.all(
+      rawIncidents.map((rawIncident, index) =>
+        normalizeIncident(rawIncident, index < GEOCODER_MAX_LOOKUPS_PER_REQUEST),
+      ),
+    )
+  ).filter(Boolean);
 
   const hasProviderErrors = providerStatus.some((provider) => provider.status === "error");
   if (normalized.length === 0 && hasProviderErrors && cache.payload && cache.key === key) {
@@ -178,9 +211,9 @@ export async function getIncidents(options = {}) {
     };
   }
 
-  const deduped = dedupeIncidents(normalized)
-    .sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime())
-    .slice(0, limit);
+  const deduped = dedupeIncidents(
+    [...normalized].sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()),
+  ).slice(0, limit);
 
   const filteredIncidents =
     category === "all" ? deduped : deduped.filter((incident) => incident.category === category);

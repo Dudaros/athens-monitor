@@ -7,6 +7,9 @@ This first version keeps the existing visual identity while introducing a scalab
 - Providers are modular (`src/services/providers/*`)
 - Events are normalized into one schema before rendering
 - Fetching is bounded, cached, and fault-tolerant for partial source failures
+- Geocoding is now location-aware (anchor matching + Nominatim fallback)
+- Duplicate stories are collapsed with headline similarity, not just URL matching
+- UI markers/cards use a semantic legend by category
 
 ## Run
 
@@ -36,8 +39,16 @@ Query limits are validated server-side:
 - `public/app.js`: map + filters + rendering
 - `src/server.js`: web server + API routes
 - `src/services/incidentService.js`: aggregation, normalization, dedupe, caching
+- `src/services/geocodingService.js`: location resolver (anchors + Nominatim)
 - `src/services/providers/`: one file per data provider
 - `src/utils/`: classification/geolocation helpers
+
+## Geocoding
+
+- Provider: OpenStreetMap Nominatim (`src/services/geocodingService.js`)
+- Flow: source coordinates (if valid in Attica) -> local anchor match -> Nominatim lookup -> Athens center (explicitly marked as approximate)
+- Optional env:
+  - `NOMINATIM_CONTACT=you@example.com` (recommended for API courtesy)
 
 ## Incremental roadmap
 

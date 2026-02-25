@@ -16,6 +16,12 @@
     --accent: #e8ff47;
     --accent2: #ff4747;
     --accent3: #47c4ff;
+    --cat-fire: #ff3b30;
+    --cat-explosion: #ff8a00;
+    --cat-protest: #ffd84d;
+    --cat-crime: #47c4ff;
+    --cat-accident: #a064ff;
+    --cat-general: #6b6b80;
     --text: #e8e8f0;
     --muted: #6b6b80;
     --card: #13131c;
@@ -230,9 +236,12 @@
     background: rgba(232,255,71,0.03);
   }
 
-  .incident-card.high { border-left-color: var(--accent2); }
-  .incident-card.medium { border-left-color: #ff9f47; }
-  .incident-card.low { border-left-color: var(--accent3); }
+  .incident-card.category-fire { border-left-color: var(--cat-fire); }
+  .incident-card.category-explosion { border-left-color: var(--cat-explosion); }
+  .incident-card.category-protest { border-left-color: var(--cat-protest); }
+  .incident-card.category-crime { border-left-color: var(--cat-crime); }
+  .incident-card.category-accident { border-left-color: var(--cat-accident); }
+  .incident-card.category-default { border-left-color: var(--cat-general); }
 
   .inc-title {
     font-size: 11px;
@@ -264,10 +273,11 @@
   .tag-high { background: rgba(255,71,71,0.15); color: var(--accent2); }
   .tag-medium { background: rgba(255,159,71,0.15); color: #ff9f47; }
   .tag-low { background: rgba(71,196,255,0.15); color: var(--accent3); }
-  .tag-protest { background: rgba(255,71,71,0.15); color: var(--accent2); }
-  .tag-fire { background: rgba(255,120,0,0.15); color: #ff7800; }
-  .tag-explosion { background: rgba(255,71,71,0.2); color: var(--accent2); }
-  .tag-crime { background: rgba(150,100,255,0.15); color: #a064ff; }
+  .tag-protest { background: rgba(255,216,77,0.2); color: var(--cat-protest); }
+  .tag-fire { background: rgba(255,59,48,0.2); color: var(--cat-fire); }
+  .tag-explosion { background: rgba(255,138,0,0.2); color: var(--cat-explosion); }
+  .tag-crime { background: rgba(71,196,255,0.2); color: var(--cat-crime); }
+  .tag-accident { background: rgba(160,100,255,0.2); color: var(--cat-accident); }
   .tag-default { background: rgba(71,196,255,0.1); color: var(--accent3); }
 
   .inc-time {
@@ -410,6 +420,31 @@
     line-height: 1.8;
   }
 
+  .legend-box {
+    border-bottom: 1px solid var(--border);
+    padding: 10px 12px;
+  }
+
+  .legend-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+    font-size: 10px;
+    letter-spacing: 0.03em;
+  }
+
+  .legend-dot {
+    font-size: 11px;
+    line-height: 1;
+  }
+
   @media (max-width: 900px) {
     body {
       grid-template-columns: 1fr;
@@ -479,6 +514,18 @@
     <div class="stat">
       <div class="stat-num" id="stat-hours">24h</div>
       <div class="stat-label">Window</div>
+    </div>
+  </div>
+
+  <div class="legend-box">
+    <div class="sidebar-title">Legend</div>
+    <div class="legend-grid">
+      <div class="legend-item"><span class="legend-dot">🔴</span>Fire</div>
+      <div class="legend-item"><span class="legend-dot">🟠</span>Explosion</div>
+      <div class="legend-item"><span class="legend-dot">🟡</span>Protest</div>
+      <div class="legend-item"><span class="legend-dot">🔵</span>Crime</div>
+      <div class="legend-item"><span class="legend-dot">🟣</span>Accident</div>
+      <div class="legend-item"><span class="legend-dot">⚪</span>General</div>
     </div>
   </div>
 

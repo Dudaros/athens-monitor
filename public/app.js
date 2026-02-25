@@ -1,6 +1,14 @@
 const ATHENS = { lat: 37.9838, lng: 23.7275 };
 const WINDOW_MINUTES = 24 * 60;
 const API_LIMIT = 140;
+const CATEGORY_COLORS = {
+  fire: "#ff3b30",
+  explosion: "#ff8a00",
+  protest: "#ffd84d",
+  crime: "#47c4ff",
+  accident: "#a064ff",
+  general: "#6b6b80",
+};
 
 let allIncidents = [];
 let currentFilter = "all";
@@ -89,6 +97,11 @@ function tagClass(category) {
   return known.has(category) ? category : "default";
 }
 
+function categoryClass(category) {
+  const known = new Set(["protest", "fire", "explosion", "crime", "accident"]);
+  return known.has(category) ? category : "default";
+}
+
 async function loadIncidents() {
   const listEl = document.getElementById("incident-list");
   listEl.innerHTML = '<div class="loading-state"><div class="spinner"></div>Fetching Athens incidents...</div>';
@@ -141,7 +154,7 @@ function renderIncidents() {
   listEl.innerHTML = filtered
     .map(
       (incident, idx) => `
-      <div class="incident-card ${escapeHtml(incident.severity || "low")}" onclick="focusIncident(${idx})" style="animation-delay:${idx * 0.03}s">
+      <div class="incident-card category-${categoryClass(incident.category)}" onclick="focusIncident(${idx})" style="animation-delay:${idx * 0.03}s">
         <div class="inc-title">${escapeHtml(incident.title || "Unnamed incident")}</div>
         <div class="inc-meta">
           <span class="inc-tag tag-${tagClass(incident.category)}">${escapeHtml(incident.category || "general")}</span>
@@ -158,15 +171,8 @@ function renderIncidents() {
 function renderMarkers() {
   markersLayer.clearLayers();
 
-  const colors = {
-    high: "#ff4747",
-    medium: "#ff9f47",
-    low: "#47c4ff",
-    general: "#6b6b80",
-  };
-
   getFilteredIncidents().forEach((incident) => {
-    const color = colors[incident.severity] || colors.general;
+    const color = CATEGORY_COLORS[incident.category] || CATEGORY_COLORS.general;
 
     const icon = L.divIcon({
       className: "",
@@ -192,6 +198,9 @@ function renderMarkers() {
       <div class="popup-meta">
         <span class="inc-tag tag-${tagClass(incident.category)}" style="font-family:monospace;font-size:9px;padding:2px 6px;border-radius:2px;">${escapeHtml(incident.category || "general")}</span>
         <span style="font-size:9px;color:#6b6b80;">${escapeHtml(incident.timeAgo || "now")}</span>
+      </div>
+      <div style="font-size:9px;color:#6b6b80;margin-bottom:6px;">
+        ${escapeHtml(incident.locationConfidence === "approx" ? "Location: Approximate (Athens center)" : `Location: ${incident.locationLabel || "Attica"}`)}
       </div>
       ${safeUrl !== "#" ? `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer" class="popup-link">→ Read article</a>` : ""}
       `,
