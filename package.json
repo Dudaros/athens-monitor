@@ -1,0 +1,20 @@
+{
+  "name": "athens-monitor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Athens incident monitor with modular live data providers",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "NODE_ENV=development node --watch src/server.js",
+    "check": "node --check src/server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "helmet": "^8.1.0",
+    "morgan": "^1.10.0"
+  }
+}

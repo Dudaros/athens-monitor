@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Athens Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #111118;
+    --border: #1e1e2e;
+    --accent: #e8ff47;
+    --accent2: #ff4747;
+    --accent3: #47c4ff;
+    --text: #e8e8f0;
+    --muted: #6b6b80;
+    --card: #13131c;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Space Mono', monospace;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: grid;
+    grid-template-rows: 52px 1fr;
+    grid-template-columns: 340px 1fr;
+    overflow: hidden;
+  }
+
+  /* HEADER */
+  header {
+    grid-column: 1 / -1;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    position: relative;
+    z-index: 1000;
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .logo-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.8); }
+  }
+
+  .logo-text {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 16px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  .logo-sub {
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+  }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  #live-time {
+    color: var(--accent);
+    font-size: 12px;
+  }
+
+  .status-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: pulse 1.5s infinite;
+  }
+
+  /* SIDEBAR */
+  aside {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    overflow-x: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  aside::-webkit-scrollbar { width: 3px; }
+  aside::-webkit-scrollbar-track { background: transparent; }
+  aside::-webkit-scrollbar-thumb { background: var(--border); }
+
+  .sidebar-header {
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: var(--surface);
+    z-index: 10;
+  }
+
+  .sidebar-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+
+  .filter-row {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .filter-btn {
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-radius: 2px;
+  }
+
+  .filter-btn:hover, .filter-btn.active {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(232,255,71,0.05);
+  }
+
+  .stats-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .stat {
+    padding: 12px 16px;
+    border-right: 1px solid var(--border);
+  }
+  .stat:last-child { border-right: none; }
+
+  .stat-num {
+    font-family: 'Syne', sans-serif;
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--accent);
+    line-height: 1;
+  }
+
+  .stat-label {
+    font-size: 9px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-top: 3px;
+  }
+
+  #incident-list {
+    flex: 1;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .incident-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent3);
+    padding: 10px 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+    border-radius: 2px;
+    animation: slideIn 0.3s ease;
+  }
+
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateX(-8px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  .incident-card:hover {
+    border-color: var(--accent);
+    background: rgba(232,255,71,0.03);
+  }
+
+  .incident-card.high { border-left-color: var(--accent2); }
+  .incident-card.medium { border-left-color: #ff9f47; }
+  .incident-card.low { border-left-color: var(--accent3); }
+
+  .inc-title {
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--text);
+    margin-bottom: 6px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .inc-meta {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .inc-tag {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 2px 6px;
+    border-radius: 2px;
+    font-weight: 700;
+  }
+
+  .tag-high { background: rgba(255,71,71,0.15); color: var(--accent2); }
+  .tag-medium { background: rgba(255,159,71,0.15); color: #ff9f47; }
+  .tag-low { background: rgba(71,196,255,0.15); color: var(--accent3); }
+  .tag-protest { background: rgba(255,71,71,0.15); color: var(--accent2); }
+  .tag-fire { background: rgba(255,120,0,0.15); color: #ff7800; }
+  .tag-explosion { background: rgba(255,71,71,0.2); color: var(--accent2); }
+  .tag-crime { background: rgba(150,100,255,0.15); color: #a064ff; }
+  .tag-default { background: rgba(71,196,255,0.1); color: var(--accent3); }
+
+  .inc-time {
+    font-size: 9px;
+    color: var(--muted);
+    margin-left: auto;
+  }
+
+  .inc-source {
+    font-size: 9px;
+    color: var(--muted);
+    font-style: italic;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 120px;
+  }
+
+  /* LOADING / EMPTY */
+  .loading-state {
+    padding: 32px 16px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  .spinner {
+    width: 24px;
+    height: 24px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto 12px;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* MAP */
+  #map {
+    z-index: 1;
+    position: relative;
+  }
+
+  .leaflet-container {
+    background: #0d0d14 !important;
+  }
+
+  /* Map overlay info */
+  .map-overlay {
+    position: absolute;
+    bottom: 20px;
+    right: 20px;
+    z-index: 500;
+    background: rgba(10,10,15,0.9);
+    border: 1px solid var(--border);
+    padding: 12px 16px;
+    font-size: 10px;
+    color: var(--muted);
+    backdrop-filter: blur(8px);
+    border-radius: 2px;
+  }
+
+  .map-overlay strong {
+    color: var(--accent);
+    font-family: 'Syne', sans-serif;
+  }
+
+  /* Refresh button */
+  .refresh-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    padding: 4px 10px;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    transition: all 0.15s;
+    border-radius: 2px;
+  }
+
+  .refresh-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .refresh-btn.spinning .btn-icon {
+    display: inline-block;
+    animation: spin 0.8s linear infinite;
+  }
+
+  /* Custom leaflet popup */
+  .leaflet-popup-content-wrapper {
+    background: var(--card) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 2px !important;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5) !important;
+    color: var(--text) !important;
+    font-family: 'Space Mono', monospace !important;
+    font-size: 11px !important;
+  }
+
+  .leaflet-popup-tip {
+    background: var(--card) !important;
+  }
+
+  .leaflet-popup-close-button {
+    color: var(--muted) !important;
+  }
+
+  .popup-title {
+    font-size: 12px;
+    line-height: 1.4;
+    margin-bottom: 8px;
+    color: var(--text);
+  }
+
+  .popup-meta {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+
+  .popup-link {
+    color: var(--accent3);
+    font-size: 10px;
+    text-decoration: none;
+  }
+
+  .popup-link:hover { text-decoration: underline; }
+
+  .empty-msg {
+    padding: 20px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.8;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-dot"></div>
+    <div>
+      <div class="logo-text">Athens Monitor</div>
+      <div class="logo-sub">Attica Incident Intelligence</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="status-pill">
+      <div class="status-dot"></div>
+      <span>GDELT Live</span>
+    </div>
+    <div id="live-time">--:--:--</div>
+    <button class="refresh-btn" onclick="loadIncidents()">
+      <span class="btn-icon">↻</span> Refresh
+    </button>
+  </div>
+</header>
+
+<aside>
+  <div class="sidebar-header">
+    <div class="sidebar-title">Filter by type</div>
+    <div class="filter-row">
+      <button class="filter-btn active" data-filter="all" onclick="setFilter('all', this)">All</button>
+      <button class="filter-btn" data-filter="protest" onclick="setFilter('protest', this)">Protest</button>
+      <button class="filter-btn" data-filter="fire" onclick="setFilter('fire', this)">Fire</button>
+      <button class="filter-btn" data-filter="crime" onclick="setFilter('crime', this)">Crime</button>
+      <button class="filter-btn" data-filter="accident" onclick="setFilter('accident', this)">Accident</button>
+      <button class="filter-btn" data-filter="explosion" onclick="setFilter('explosion', this)">Explosion</button>
+    </div>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat">
+      <div class="stat-num" id="stat-total">—</div>
+      <div class="stat-label">Events</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num" id="stat-high">—</div>
+      <div class="stat-label">High</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num" id="stat-hours">24h</div>
+      <div class="stat-label">Window</div>
+    </div>
+  </div>
+
+  <div id="incident-list">
+    <div class="loading-state">
+      <div class="spinner"></div>
+      Fetching Athens incidents...
+    </div>
+  </div>
+</aside>
+
+<div id="map"></div>
+
+<div class="map-overlay">
+  <strong>ATTICA REGION</strong><br>
+  37.97°N — 23.73°E<br>
+  Radius: ~80km
+</div>
+
+<script>
+// ── CONFIG ──────────────────────────────────────────────────────────────
+const ATHENS = { lat: 37.9838, lng: 23.7275 };
+const ATTICA_BBOX = { minLat: 37.7, maxLat: 38.2, minLng: 23.3, maxLng: 24.2 };
+
+// Keywords that indicate incidents relevant to Athens citizens
+const INCIDENT_KEYWORDS = [
+  'Athens', 'Αθήνα', 'Attica', 'Attiki', 'Piraeus', 'Πειραιάς',
+  'Kifissia', 'Glyfada', 'Nea Smyrni', 'Kallithea', 'Chalandri',
+  'Halandri', 'Marousi', 'Heraklion', 'Galatsi', 'Peristeri'
+];
+
+const CATEGORY_KEYWORDS = {
+  protest: ['protest', 'demonstration', 'rally', 'strike', 'riot', 'march', 'unrest', 'πορεία', 'απεργία'],
+  fire: ['fire', 'blaze', 'wildfire', 'arson', 'φωτιά', 'πυρκαγιά'],
+  explosion: ['explosion', 'bomb', 'blast', 'explosive', 'έκρηξη'],
+  crime: ['murder', 'shooting', 'robbery', 'stabbing', 'arrest', 'crime', 'attack', 'gang'],
+  accident: ['crash', 'accident', 'collision', 'derail', 'flood', 'earthquake', 'ατύχημα']
+};
+
+let allIncidents = [];
+let currentFilter = 'all';
+let map, markersLayer;
+
+// ── MAP INIT ────────────────────────────────────────────────────────────
+function initMap() {
+  map = L.map('map', {
+    center: [ATHENS.lat, ATHENS.lng],
+    zoom: 11,
+    zoomControl: true
+  });
+
+  // Dark tile layer
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '© OpenStreetMap contributors © CARTO',
+    subdomains: 'abcd',
+    maxZoom: 19
+  }).addTo(map);
+
+  markersLayer = L.layerGroup().addTo(map);
+
+  // Athens center marker
+  const centerIcon = L.divIcon({
+    className: '',
+    html: `<div style="width:8px;height:8px;background:#e8ff47;border-radius:50%;box-shadow:0 0 10px #e8ff47;"></div>`,
+    iconSize: [8, 8],
+    iconAnchor: [4, 4]
+  });
+  L.marker([ATHENS.lat, ATHENS.lng], { icon: centerIcon })
+    .bindTooltip('Athens Center', { permanent: false })
+    .addTo(map);
+}
+
+// ── CLOCK ────────────────────────────────────────────────────────────────
+function updateClock() {
+  const now = new Date();
+  document.getElementById('live-time').textContent =
+    now.toLocaleTimeString('el-GR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ── GDELT FETCH ──────────────────────────────────────────────────────────
+async function loadIncidents() {
+  const listEl = document.getElementById('incident-list');
+  listEl.innerHTML = `<div class="loading-state"><div class="spinner"></div>Fetching Athens incidents...</div>`;
+
+  try {
+    // GDELT GEO API — search for Athens-related events in last 24h
+    // We search multiple relevant themes and keywords
+    const queries = [
+      'Athens protest',
+      'Athens fire',
+      'Athens explosion',
+      'Athens crime',
+      'Attica incident'
+    ];
+
+    const results = [];
+
+    for (const q of queries) {
+      const url = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(q + ' sourcelang:greek OR sourcelang:english')}&mode=artlist&maxrecords=10&timespan=1440&sort=DateDesc&format=json`;
+      try {
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.articles) results.push(...data.articles);
+      } catch(e) {
+        // silently skip failed sub-query
+      }
+    }
+
+    // Also try the GEO API for Athens bounding box events
+    const geoUrl = `https://api.gdeltproject.org/api/v1/gkg_geojson?QUERY=Greece&TIMESPAN=1440`;
+    try {
+      const geoRes = await fetch(geoUrl);
+      const geoData = await geoRes.json();
+      if (geoData.features) {
+        for (const f of geoData.features) {
+          const coords = f.geometry?.coordinates;
+          if (coords) {
+            const [lng, lat] = coords;
+            if (lat >= ATTICA_BBOX.minLat && lat <= ATTICA_BBOX.maxLat &&
+                lng >= ATTICA_BBOX.minLng && lng <= ATTICA_BBOX.maxLng) {
+              // convert to article-like format
+              results.push({
+                title: f.properties?.name || 'Athens Event',
+                url: f.properties?.url || '#',
+                domain: f.properties?.domain || 'gdeltproject.org',
+                seendate: new Date().toISOString(),
+                _lat: lat,
+                _lng: lng,
+                _fromGeo: true
+              });
+            }
+          }
+        }
+      }
+    } catch(e) {}
+
+    // Deduplicate by URL
+    const seen = new Set();
+    const unique = results.filter(a => {
+      if (!a.url || seen.has(a.url)) return false;
+      seen.add(a.url);
+      return true;
+    });
+
+    // Classify and enrich
+    allIncidents = unique.map(article => enrichIncident(article));
+
+    renderIncidents();
+    renderMarkers();
+    updateStats();
+
+  } catch (err) {
+    listEl.innerHTML = `<div class="empty-msg">
+      ⚠ Could not reach GDELT API.<br><br>
+      This may be a CORS issue in the browser.<br>
+      In production, requests would go through your backend proxy.
+      <br><br>
+      <small style="color:#444">Loading demo data instead...</small>
+    </div>`;
+    loadDemoData();
+  }
+}
+
+function enrichIncident(article) {
+  const title = (article.title || '').toLowerCase();
+  let category = 'general';
+  let severity = 'low';
+
+  for (const [cat, words] of Object.entries(CATEGORY_KEYWORDS)) {
+    if (words.some(w => title.includes(w))) {
+      category = cat;
+      break;
+    }
+  }
+
+  if (['explosion', 'fire'].includes(category)) severity = 'high';
+  else if (['protest', 'crime'].includes(category)) severity = 'medium';
+
+  // Try to extract coords or assign Athens area with slight random offset
+  let lat = article._lat || (ATHENS.lat + (Math.random() - 0.5) * 0.15);
+  let lng = article._lng || (ATHENS.lng + (Math.random() - 0.5) * 0.15);
+
+  const date = article.seendate ? new Date(article.seendate) : new Date();
+  const timeAgo = getTimeAgo(date);
+
+  return { ...article, category, severity, lat, lng, timeAgo, date };
+}
+
+function getTimeAgo(date) {
+  const mins = Math.floor((Date.now() - date.getTime()) / 60000);
+  if (mins < 60) return `${mins}m ago`;
+  if (mins < 1440) return `${Math.floor(mins/60)}h ago`;
+  return `${Math.floor(mins/1440)}d ago`;
+}
+
+// ── RENDER ────────────────────────────────────────────────────────────────
+function renderIncidents() {
+  const listEl = document.getElementById('incident-list');
+  const filtered = currentFilter === 'all'
+    ? allIncidents
+    : allIncidents.filter(i => i.category === currentFilter);
+
+  if (filtered.length === 0) {
+    listEl.innerHTML = `<div class="empty-msg">No incidents found<br>for this filter.</div>`;
+    return;
+  }
+
+  listEl.innerHTML = filtered.map((inc, idx) => `
+    <div class="incident-card ${inc.severity}" onclick="focusIncident(${idx})" style="animation-delay:${idx * 0.03}s">
+      <div class="inc-title">${inc.title || 'Unnamed incident'}</div>
+      <div class="inc-meta">
+        <span class="inc-tag tag-${inc.category}">${inc.category}</span>
+        <span class="inc-tag tag-${inc.severity}">${inc.severity}</span>
+        <span class="inc-source">${inc.domain || ''}</span>
+        <span class="inc-time">${inc.timeAgo}</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderMarkers() {
+  markersLayer.clearLayers();
+
+  const colors = {
+    high: '#ff4747',
+    medium: '#ff9f47',
+    low: '#47c4ff',
+    general: '#6b6b80'
+  };
+
+  const filtered = currentFilter === 'all'
+    ? allIncidents
+    : allIncidents.filter(i => i.category === currentFilter);
+
+  filtered.forEach((inc, idx) => {
+    const color = colors[inc.severity] || colors.general;
+    const icon = L.divIcon({
+      className: '',
+      html: `<div style="
+        width: 10px; height: 10px;
+        background: ${color};
+        border-radius: 50%;
+        border: 2px solid rgba(255,255,255,0.2);
+        box-shadow: 0 0 8px ${color}88;
+        cursor: pointer;
+      "></div>`,
+      iconSize: [10, 10],
+      iconAnchor: [5, 5]
+    });
+
+    const marker = L.marker([inc.lat, inc.lng], { icon });
+    marker.bindPopup(`
+      <div class="popup-title">${inc.title || 'Incident'}</div>
+      <div class="popup-meta">
+        <span class="inc-tag tag-${inc.category}" style="font-family:monospace;font-size:9px;padding:2px 6px;border-radius:2px;">${inc.category}</span>
+        <span style="font-size:9px;color:#6b6b80;">${inc.timeAgo}</span>
+      </div>
+      ${inc.url && inc.url !== '#' ? `<a href="${inc.url}" target="_blank" class="popup-link">→ Read article</a>` : ''}
+    `, { maxWidth: 260 });
+    markersLayer.addLayer(marker);
+  });
+}
+
+function updateStats() {
+  const total = allIncidents.length;
+  const high = allIncidents.filter(i => i.severity === 'high').length;
+  document.getElementById('stat-total').textContent = total;
+  document.getElementById('stat-high').textContent = high;
+}
+
+function focusIncident(idx) {
+  const filtered = currentFilter === 'all'
+    ? allIncidents
+    : allIncidents.filter(i => i.category === currentFilter);
+  const inc = filtered[idx];
+  if (!inc) return;
+  map.setView([inc.lat, inc.lng], 14, { animate: true });
+}
+
+function setFilter(filter, btn) {
+  currentFilter = filter;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderIncidents();
+  renderMarkers();
+}
+
+// ── DEMO DATA (fallback when CORS blocks API) ──────────────────────────
+function loadDemoData() {
+  const demo = [
+    { title: 'Protest march blocks Syntagma Square, tear gas used by police', category: 'protest', severity: 'high', lat: 37.9755, lng: 23.7348, domain: 'ekathimerini.com', timeAgo: '2h ago' },
+    { title: 'Fire breaks out in apartment building in Kypseli, 3 injured', category: 'fire', severity: 'high', lat: 37.9939, lng: 23.7329, domain: 'protothema.gr', timeAgo: '4h ago' },
+    { title: 'Armed robbery at jewelry store in Kolonaki, suspect at large', category: 'crime', severity: 'medium', lat: 37.9789, lng: 23.7439, domain: 'in.gr', timeAgo: '6h ago' },
+    { title: 'Wildfire reported near Penteli mountain, wind conditions critical', category: 'fire', severity: 'high', lat: 38.0614, lng: 23.8694, domain: 'iefimerida.gr', timeAgo: '1h ago' },
+    { title: 'Suspected explosive device found near police station in Exarcheia', category: 'explosion', severity: 'high', lat: 37.9867, lng: 23.7319, domain: 'kathimerini.gr', timeAgo: '3h ago' },
+    { title: 'Traffic accident on Attiki Odos, 2 vehicles involved', category: 'accident', severity: 'low', lat: 37.9908, lng: 23.6917, domain: 'tovima.gr', timeAgo: '5h ago' },
+    { title: 'Student protest outside University of Athens, roads blocked', category: 'protest', severity: 'medium', lat: 37.9784, lng: 23.7284, domain: 'naftemporiki.gr', timeAgo: '7h ago' },
+    { title: 'Gas leak in Piraeus forces evacuation of residential block', category: 'accident', severity: 'medium', lat: 37.9439, lng: 23.6467, domain: 'protothema.gr', timeAgo: '8h ago' },
+    { title: 'Anarchist group claims responsibility for bank ATM bombing in Zografou', category: 'explosion', severity: 'high', lat: 37.9717, lng: 23.7656, domain: 'iefimerida.gr', timeAgo: '12h ago' },
+    { title: 'Flooding in basement apartments after heavy rain in Glyfada', category: 'accident', severity: 'low', lat: 37.8667, lng: 23.7500, domain: 'in.gr', timeAgo: '14h ago' },
+    { title: 'Drug trafficking ring dismantled by ELAS in Omonia', category: 'crime', severity: 'medium', lat: 37.9833, lng: 23.7272, domain: 'ekathimerini.com', timeAgo: '18h ago' },
+    { title: 'Metro strike disrupts morning commute across Athens network', category: 'protest', severity: 'medium', lat: 37.9838, lng: 23.7275, domain: 'tovima.gr', timeAgo: '20h ago' },
+  ];
+
+  allIncidents = demo.map(d => ({
+    ...d,
+    url: '#',
+    date: new Date()
+  }));
+
+  renderIncidents();
+  renderMarkers();
+  updateStats();
+}
+
+// ── INIT ─────────────────────────────────────────────────────────────────
+window.onload = function() {
+  initMap();
+  loadIncidents();
+};
+</script>
+</body>
+</html>
