@@ -84,6 +84,11 @@ export async function listIncidents(filters = {}) {
     whereClauses.push(`last_seen_at >= $${values.length}`);
   }
 
+  if (filters.source) {
+    values.push(filters.source);
+    whereClauses.push(`source = $${values.length}`);
+  }
+
   const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
 
   const sql = `
@@ -114,13 +119,17 @@ export async function getIncidentsHealthSnapshot() {
   const result = await pool.query(`
     SELECT
       MAX(last_seen_at) AS last_success,
-      COUNT(*) FILTER (WHERE status = 'active')::INTEGER AS cached_count
+      COUNT(*) FILTER (WHERE status = 'active')::INTEGER AS cached_count,
+      ARRAY_REMOVE(ARRAY_AGG(DISTINCT source), NULL) AS active_sources
     FROM incidents;
   `);
 
   const row = result.rows[0] || {};
   return {
-    source: "gdelt",
+    source:
+      Array.isArray(row.active_sources) && row.active_sources.length > 0
+        ? row.active_sources.join(",")
+        : "none",
     lastSuccess: row.last_success ? new Date(row.last_success).toISOString() : null,
     cachedCount: Number(row.cached_count || 0),
   };

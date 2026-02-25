@@ -104,7 +104,11 @@ function categoryClass(category) {
   return known.has(category) ? category : "default";
 }
 
-function inferCategory(title) {
+function inferCategory(title, source) {
+  if (String(source || "").toLowerCase() === "meteo") {
+    return "accident";
+  }
+
   const normalized = String(title || "").toLowerCase();
   for (const [category, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
     if (keywords.some((keyword) => normalized.includes(keyword))) {
@@ -123,11 +127,14 @@ function getTimeAgo(dateInput) {
 }
 
 function mapRowToIncident(row) {
-  const category = inferCategory(row.title);
+  const category = inferCategory(row.title, row.source);
+  const maybeUrl = sanitizeUrl(row.description);
+
   return {
     id: row.id,
     title: row.title,
     description: row.description,
+    url: maybeUrl === "#" ? null : maybeUrl,
     lat: Number(row.lat),
     lng: Number(row.lng),
     severity: row.severity || "low",
@@ -145,7 +152,7 @@ async function loadIncidents() {
 
   try {
     const [incidentsResponse, healthResponse] = await Promise.all([
-      fetch("/api/incidents?status=active&min_confidence=0.5", {
+      fetch("/api/incidents?status=active&min_confidence=0.7", {
         headers: { Accept: "application/json" },
       }),
       fetch("/api/health", { headers: { Accept: "application/json" } }),
@@ -232,7 +239,6 @@ function renderMarkers() {
     });
 
     const marker = L.marker([incident.lat, incident.lng], { icon });
-    const safeUrl = sanitizeUrl(incident.description);
 
     marker.bindPopup(
       `
@@ -244,7 +250,8 @@ function renderMarkers() {
       <div style="font-size:9px;color:#6b6b80;margin-bottom:6px;">
         Confidence: ${(incident.confidence * 100).toFixed(0)}%
       </div>
-      ${safeUrl !== "#" ? `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer" class="popup-link">→ Open source</a>` : ""}
+      ${incident.description && !incident.url ? `<div style="font-size:10px;color:#8c8ca3;">${escapeHtml(incident.description)}</div>` : ""}
+      ${incident.url ? `<a href="${incident.url}" target="_blank" rel="noopener noreferrer" class="popup-link">→ Open source</a>` : ""}
       `,
       { maxWidth: 260 },
     );

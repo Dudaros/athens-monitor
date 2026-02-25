@@ -87,3 +87,12 @@ The current architecture supports:
 - Geospatial extensions
 - Historical trend analysis
 - Scalable cloud deployment
+
+## API Filters
+
+`GET /api/incidents` supports:
+
+- `status` (default: `active`)
+- `min_confidence` (example: `0.7`)
+- `since` (ISO timestamp)
+- `source` (example: `gdelt` or `meteo`)

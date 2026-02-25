@@ -25,15 +25,14 @@ app.use(express.json({ limit: "100kb" }));
 app.use(express.static(publicDir));
 
 app.get("/api/health", async (_req, res) => {
+  const nowIso = new Date().toISOString();
   const snapshot = await getIncidentsHealthSnapshot();
-  const nextPoll = snapshot.lastSuccess
-    ? new Date(new Date(snapshot.lastSuccess).getTime() + POLL_INTERVAL_MS).toISOString()
-    : null;
+  const nextPoll = new Date(Date.now() + POLL_INTERVAL_MS).toISOString();
 
   res.json({
     status: "ok",
     service: "athens-monitor",
-    now: new Date().toISOString(),
+    now: nowIso,
     source: snapshot.source,
     lastSuccess: snapshot.lastSuccess,
     cachedCount: snapshot.cachedCount,
@@ -47,6 +46,7 @@ app.get("/api/incidents", async (req, res) => {
       status: req.query.status,
       minConfidence: req.query.min_confidence,
       since: req.query.since,
+      source: req.query.source,
     });
 
     res.json(rows);

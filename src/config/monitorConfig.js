@@ -66,6 +66,14 @@ export const GDELT_QUERIES = [
   "(Athens OR Αθήνα OR Attica OR Αττική) (incident OR protest OR fire OR explosion OR crime OR police OR accident)",
 ];
 
+export const METEO_LOCATIONS = [
+  { name: "Athens Center", lat: 37.9838, lng: 23.7275 },
+  { name: "Piraeus", lat: 37.9439, lng: 23.6467 },
+  { name: "Kifissia", lat: 38.0741, lng: 23.8116 },
+  { name: "Glyfada", lat: 37.8629, lng: 23.7488 },
+  { name: "Penteli", lat: 38.0614, lng: 23.8694 },
+];
+
 export const CACHE_TTL_MS = 45_000;
 export const FETCH_TIMEOUT_MS = 15_000;
 export const NOMINATIM_MIN_INTERVAL_MS = 1_100;

@@ -1,9 +1,22 @@
 import { DEFAULT_WINDOW_MINUTES, MAX_LIMIT } from "../config/monitorConfig.js";
 import { closeDatabase, waitForDatabase } from "../db/postgres.js";
 import { upsertIncidents } from "../db/incidentsRepository.js";
-import { fetchNormalizedGdeltIncidents } from "./ingestionService.js";
+import { fetchNormalizedIncidents } from "./ingestionService.js";
 
 const POLL_INTERVAL_MS = 15 * 60 * 1000;
+const DEFAULT_SOURCES = ["gdelt", "meteo"];
+
+function resolvePollSources() {
+  const envSources = process.env.POLL_SOURCES;
+  if (!envSources) return DEFAULT_SOURCES;
+
+  const parsed = envSources
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+
+  return parsed.length > 0 ? parsed : DEFAULT_SOURCES;
+}
 
 let pollTimer = null;
 let pollInFlight = false;
@@ -16,16 +29,18 @@ async function pollOnce(reason = "scheduled") {
   pollInFlight = true;
 
   try {
-    const incidents = await fetchNormalizedGdeltIncidents({
+    const sources = resolvePollSources();
+    const incidents = await fetchNormalizedIncidents({
       windowMinutes: DEFAULT_WINDOW_MINUTES,
       limit: MAX_LIMIT,
+      sources,
     });
 
     const result = await upsertIncidents(incidents);
 
     // eslint-disable-next-line no-console
     console.log(
-      `[pollingWorker] ${reason} success: fetched=${incidents.length} upserted=${result.upserted} at ${new Date().toISOString()}`,
+      `[pollingWorker] ${reason} success: sources=${sources.join(",")} fetched=${incidents.length} upserted=${result.upserted} at ${new Date().toISOString()}`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown poll error";
